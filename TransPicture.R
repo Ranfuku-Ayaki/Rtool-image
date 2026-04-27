@@ -1,232 +1,228 @@
 TransPicture <- function() {
   # ============================================================================
-  # 交互式图片格式转换函数
-  # 功能：批量/选择性转换图片格式，支持智能识别文件夹命名、自动处理文件冲突
-  # 依赖：magick 包
-  # ============================================================================
+============================================================================
   
-  # 检查并安装/加载 magick 包
+  # 语言检测
+  sys_lang <- Sys.getlocale("LC_CTYPE")
+  is_cn <- grepl("Chinese|zh_CN|zh-CN", sys_lang, ignore.case = TRUE)
+  
+  # 支持格式
+  all_formats <- c("png", "jpg", "jpeg", "webp", "tiff", "bmp", "gif", "svg")
+  
+  # 双语提示
+  msg <- list(
+    installing = if(is_cn) "正在安装 magick 包..." else "Installing magick...",
+    loop_start = if(is_cn) "========== 进入循环转换模式（输入 quit 或 q 退出）==========" else "========== Loop Mode (type quit/q to exit) ==========",
+    step1 = if(is_cn) "========== 工作目录 ==========" else "========== Workspace ==========",
+    current_dir = if(is_cn) "当前目录：" else "Current dir:",
+    auto_input = if(is_cn) "✅ 自动创建 Input 文件夹" else "✅ Auto-created Input folder",
+    folder_list = if(is_cn) "可用文件夹：" else "Folders:",
+    step2 = if(is_cn) "========== 选择输入文件夹 ==========" else "========== Select Input Folder ==========",
+    input_prompt = if(is_cn) "输入编号（quit 退出）：" else "Enter number (quit to exit):",
+    warn_sys = if(is_cn) "⚠️ 疑似系统文件夹，确定使用？(y/n)" else "⚠️ System folder, confirm?(y/n)",
+    selected_input = if(is_cn) "已选输入：%s" else "Input: %s",
+    invalid_num = if(is_cn) "无效输入" else "Invalid input",
+    step3 = if(is_cn) "========== 选择图片（多选：空格分隔）==========" else "========== Select Images (space sep) ==========",
+    no_images = if(is_cn) "无图片" else "No images",
+    img_prompt = if(is_cn) "输入图片编号（quit 退出）：" else "Image numbers (quit to exit):",
+    selected_img = if(is_cn) "已选图片：%d 张" else "Selected: %d images",
+    step4 = if(is_cn) "========== 选择输出文件夹 ==========" else "========== Select Output Folder ==========",
+    output_prompt = if(is_cn) "输入编号 | new 新建 | quit 退出：" else "Number | new | quit:",
+    new_folder_name = if(is_cn) "新文件夹名称：" else "New folder name:",
+    folder_exists = if(is_cn) "已存在" else "Exists",
+    folder_created = if(is_cn) "✅ 已创建：%s" else "✅ Created: %s",
+    selected_output = if(is_cn) "已选输出：%s" else "Output: %s",
+    step5 = if(is_cn) "========== 选择导出格式（多选：空格分隔）==========" else "========== Select Output Formats ==========",
+    fmt_list = if(is_cn) "支持格式：" else "Formats:",
+    fmt_prompt = if(is_cn) "输入格式（quit 退出）：" else "Formats (quit to exit):",
+    invalid_fmt = if(is_cn) "格式不支持" else "Invalid format",
+    selected_fmt = if(is_cn) "已选导出格式：%s" else "Export formats: %s",
+    jpg_quality = if(is_cn) "JPG 质量 1-100（默认95）：" else "JPG quality 1-100 (default 95):",
+    converting = if(is_cn) "\n开始转换..." else "\nConverting...",
+    success = if(is_cn) "✅ %s → %s" else "✅ %s → %s",
+    fail = if(is_cn) "❌ %s 失败：%s" else "❌ %s failed: %s",
+    done = if(is_cn) "\n========== 本轮完成 ==========" else "\n========== Task Done ==========",
+    total_suc = if(is_cn) "成功：%d 个文件" else "Success: %d files",
+    total_fail = if(is_cn) "失败：%d 个" else "Failed: %d",
+    quit_msg = if(is_cn) "👋 已退出转换工具" else "👋 Exited",
+    repeat_msg = if(is_cn) "\n→ 准备下一轮转换..." else "\n→ Next round..."
+  )
+  
+  # 安装依赖
   if (!require("magick", quietly = TRUE)) {
-    message("正在安装 magick 包...")
+    message(msg$installing)
     install.packages("magick")
     library(magick)
   }
   
-  # ----------------------------------------------------------------------------
-  # 步骤1：读取工作目录并列出所有文件夹（过滤隐藏/系统文件夹）
-  # ----------------------------------------------------------------------------
-  
-  cat("\n========== 步骤1：工作目录扫描 ==========\n")
+  # 自动创建 Input
   current_dir <- getwd()
-  cat("当前工作目录:", current_dir, "\n")
-  
-  # 获取所有文件夹（不包括子目录），过滤隐藏/系统文件夹
-  all_dirs <- list.dirs(path = current_dir, full.names = FALSE, recursive = FALSE)
-  all_dirs <- all_dirs[!grepl("^\\.", all_dirs) & all_dirs != ""]
-  
-  if (length(all_dirs) == 0) {
-    stop("当前目录下不存在有效的工作文件夹（已自动排除隐藏文件夹如.Rproj.user等）。\n",
-         "请先创建输入/输出文件夹（确保不以点开头）。")
+  if (!dir.exists("Input")) {
+    dir.create("Input")
+    img <- image_blank(10, 10, "white")
+    image_write(img, file.path("Input", "empty.png"))
+    cat(msg$auto_input, "\n")
   }
   
-  cat("\n已发现的有效文件夹（自动隐藏系统文件夹）：\n")
-  for (i in seq_along(all_dirs)) {
-    cat(sprintf("  [%d] %s\n", i, all_dirs[i]))
-  }
-  
-  # ----------------------------------------------------------------------------
-  # 步骤2：选择输入文件夹（增加二次确认机制）
-  # ----------------------------------------------------------------------------
-  
-  cat("\n========== 步骤2：选择输入端 ==========\n")
-  input_folder <- NULL
+  # 循环主逻辑
   repeat {
-    input_choice <- readline(prompt = "请输入输入文件夹对应的阿拉伯数字：")
-    input_idx <- suppressWarnings(as.integer(input_choice))
+    cat("\n\n", msg$loop_start, "\n")
+    all_dirs <- list.dirs(current_dir, full.names = FALSE, recursive = FALSE)
+    all_dirs <- all_dirs[!grepl("^\\.", all_dirs)]
     
-    if (!is.na(input_idx) && input_idx >= 1 && input_idx <= length(all_dirs)) {
-      input_folder <- all_dirs[input_idx]
-      input_path <- file.path(current_dir, input_folder)
-      
-      # 安全检查：可疑文件夹二次确认
-      suspicious <- grepl("rproj|temp|cache|config", tolower(input_folder))
-      if (suspicious) {
-        confirm <- readline(sprintf(
-          "警告：'%s' 看起来像是系统/缓存文件夹，确定要作为输入吗？(y/n): ", 
-          input_folder
-        ))
-        if (tolower(confirm) != "y") next
-      }
-      
-      cat(sprintf("已选择输入文件夹: %s\n", input_folder))
-      break
-    } else {
-      cat(sprintf("无效输入，请输入 1 到 %d 之间的数字。\n", length(all_dirs)))
-    }
-  }
-  
-  # ----------------------------------------------------------------------------
-  # 步骤3：选择图片处理方式
-  # ----------------------------------------------------------------------------
-  
-  cat("\n========== 步骤3：图片选择模式 ==========\n")
-  cat("A - 转换文件夹内所有支持的图片\n")
-  cat("B - 手动选择特定图片（支持多选）\n")
-  
-  supported_ext <- c("jpg", "jpeg", "png", "tiff", "tif", "bmp", "gif", "webp", "svg")
-  pattern_str <- paste0("\\.(", paste(supported_ext, collapse = "|"), ")$")
-  
-  # 选择处理模式
-  repeat {
-    mode_choice <- toupper(readline(prompt = "请输入 A 或 B："))
-    if (mode_choice %in% c("A", "B")) break
-    cat("无效输入，请输入 A 或 B。\n")
-  }
-  
-  # 获取文件夹内所有支持的图片
-  all_images <- list.files(
-    path = input_path, 
-    pattern = pattern_str, 
-    ignore.case = TRUE, 
-    full.names = FALSE
-  )
-  
-  if (length(all_images) == 0) {
-    stop(sprintf("在 '%s' 中未找到支持的图片格式。", input_folder))
-  }
-  
-  # 选择要转换的图片
-  selected_images <- if (mode_choice == "A") {
-    cat(sprintf("\n已选择全部 %d 张图片。\n", length(all_images)))
-    all_images
-  } else {
-    cat("\n可用图片列表：\n")
-    for (i in seq_along(all_images)) {
-      cat(sprintf("  [%d] %s\n", i, all_images[i]))
-    }
+    # ------------------------------
+    # 步骤1：显示文件夹
+    # ------------------------------
+    cat(msg$step1, "\n", msg$current_dir, current_dir, "\n")
+    cat(msg$folder_list, "\n")
+    for (i in seq_along(all_dirs)) cat(sprintf("  [%d] %s\n", i, all_dirs[i]))
     
+    # ------------------------------
+    # 步骤2：选择输入文件夹
+    # ------------------------------
+    cat("\n", msg$step2, "\n")
+    input_folder <- NULL
+    input_path <- NULL
     repeat {
-      img_input <- readline(prompt = "\n请输入要转换的图片编号（空格分隔）：")
-      img_indices <- suppressWarnings(as.integer(strsplit(trimws(img_input), "\\s+")[[1]]))
-      img_indices <- img_indices[!is.na(img_indices)]
-      
-      if (length(img_indices) > 0 && all(img_indices >= 1 & img_indices <= length(all_images))) {
-        cat(sprintf("已选择 %d 张图片。\n", length(img_indices)))
+      c <- trimws(readline(msg$input_prompt))
+      if (tolower(c) %in% c("quit", "q")) { message(msg$quit_msg); return(invisible(NULL)) }
+      idx <- suppressWarnings(as.integer(c))
+      if (!is.na(idx) && idx >=1 && idx <= length(all_dirs)) {
+        input_folder <- all_dirs[idx]
+        input_path <- file.path(current_dir, input_folder)
+        if (grepl("temp|cache|rproj|config", tolower(input_folder))) {
+          confirm <- tolower(readline(msg$warn_sys))
+          if (confirm != "y") next
+        }
+        cat(sprintf(msg$selected_input, input_folder), "\n")
         break
       }
-      cat("输入包含无效编号。\n")
-    }
-    all_images[img_indices]
-  }
-  
-  # ----------------------------------------------------------------------------
-  # 步骤4：选择输出文件夹
-  # ----------------------------------------------------------------------------
-  
-  cat("\n========== 步骤4：选择输出端 ==========\n")
-  for (i in seq_along(all_dirs)) {
-    marker <- if (all_dirs[i] == input_folder) " [当前输入]" else ""
-    cat(sprintf("  [%d] %s%s\n", i, all_dirs[i], marker))
-  }
-  
-  repeat {
-    output_choice <- readline(prompt = "请输入输出文件夹对应的阿拉伯数字：")
-    output_idx <- suppressWarnings(as.integer(output_choice))
-    
-    if (!is.na(output_idx) && output_idx >= 1 && output_idx <= length(all_dirs)) {
-      output_folder <- all_dirs[output_idx]
-      output_path <- file.path(current_dir, output_folder)
-      cat(sprintf("已选择输出文件夹: %s\n", output_folder))
-      break
-    }
-    cat(sprintf("无效输入，请输入 1 到 %d 之间的数字。\n", length(all_dirs)))
-  }
-  
-  # ----------------------------------------------------------------------------
-  # 步骤5：智能格式识别与执行转换
-  # ----------------------------------------------------------------------------
-  
-  cat("\n========== 步骤5：智能格式转换 ==========\n")
-  
-  # 定义格式识别函数
-  detect_format <- function(folder_name) {
-    clean_name <- tolower(trimws(folder_name))
-    format_map <- list(
-      jpeg = c("jpeg", "jpg"), jpg = c("jpg", "jpeg"),
-      png = c("png"), tiff = c("tiff", "tif"), tif = c("tif", "tiff"),
-      bmp = c("bmp"), gif = c("gif"), webp = c("webp"), svg = c("svg")
-    )
-    
-    for (fmt in names(format_map)) {
-      if (clean_name %in% format_map[[fmt]]) return(fmt)
-    }
-    return(NA)
-  }
-  
-  # 识别输入输出格式
-  input_format <- detect_format(input_folder)
-  output_format <- detect_format(output_folder)
-  
-  cat(sprintf("输入识别格式: %s\n", ifelse(is.na(input_format), "未识别", input_format)))
-  cat(sprintf("输出识别格式: %s\n", ifelse(is.na(output_format), "未识别（默认png）", output_format)))
-  
-  if (is.na(output_format)) {
-    output_format <- "png"
-    cat("使用默认输出格式: png\n")
-  }
-  
-  # 执行转换
-  cat(sprintf("\n开始转换 %d 张图片...\n", length(selected_images)))
-  success_count <- 0
-  fail_count <- 0
-  
-  for (img_name in selected_images) {
-    input_file <- file.path(input_path, img_name)
-    base_name <- tools::file_path_sans_ext(img_name)
-    output_file <- file.path(output_path, paste0(base_name, ".", output_format))
-    
-    # 处理文件名冲突
-    counter <- 1
-    orig_output <- output_file
-    while (file.exists(output_file) && output_file != input_file) {
-      output_file <- file.path(output_path, paste0(base_name, "_", counter, ".", output_format))
-      counter <- counter + 1
+      cat(msg$invalid_num, "\n")
     }
     
-    tryCatch({
-      # 读取并写入图片
-      img <- image_read(input_file)
-      if (output_format %in% c("jpeg", "jpg")) {
-        image_write(img, path = output_file, format = output_format, quality = 95)
-      } else {
-        image_write(img, path = output_file, format = output_format)
+    # ------------------------------
+    # 步骤3：多选图片
+    # ------------------------------
+    cat("\n", msg$step3, "\n")
+    exts <- paste(all_formats, collapse = "|")
+    images <- list.files(input_path, pattern = paste0("\\.(", exts, ")$"), ignore.case = TRUE)
+    if (length(images) == 0) stop(msg$no_images)
+    for (i in seq_along(images)) cat(sprintf("  [%d] %s\n", i, images[i]))
+    
+    selected_images <- NULL
+    repeat {
+      c <- trimws(readline(msg$img_prompt))
+      if (tolower(c) %in% c("quit", "q")) { message(msg$quit_msg); return(invisible(NULL)) }
+      ids <- suppressWarnings(as.integer(strsplit(c, "\\s+")[[1]]))
+      ids <- ids[!is.na(ids)]
+      if (length(ids) > 0 && all(ids >=1 & ids <= length(images))) {
+        selected_images <- images[ids]
+        cat(sprintf(msg$selected_img, length(selected_images)), "\n")
+        break
       }
+      cat(msg$invalid_num, "\n")
+    }
+    
+    # ------------------------------
+    # 步骤4：输出文件夹（new 新建）
+    # ------------------------------
+    cat("\n", msg$step4, "\n")
+    for (i in seq_along(all_dirs)) cat(sprintf("  [%d] %s\n", i, all_dirs[i]))
+    output_folder <- NULL
+    output_path <- NULL
+    repeat {
+      c <- tolower(trimws(readline(msg$output_prompt)))
+      if (c %in% c("quit", "q")) { message(msg$quit_msg); return(invisible(NULL)) }
+      if (c == "new") {
+        n <- trimws(readline(msg$new_folder_name))
+        p <- file.path(current_dir, n)
+        if (dir.exists(p)) { cat(msg$folder_exists, "\n"); next }
+        dir.create(p)
+        output_folder <- n
+        output_path <- p
+        cat(sprintf(msg$folder_created, n), "\n")
+        break
+      }
+      idx <- suppressWarnings(as.integer(c))
+      if (!is.na(idx) && idx >=1 && idx <= length(all_dirs)) {
+        output_folder <- all_dirs[idx]
+        output_path <- file.path(current_dir, output_folder)
+        break
+      }
+      cat(msg$invalid_num, "\n")
+    }
+    cat(sprintf(msg$selected_output, output_folder), "\n")
+    
+    # ------------------------------
+    # 步骤5：多选导出格式
+    # ------------------------------
+    cat("\n", msg$step5, "\n")
+    cat(msg$fmt_list, paste(all_formats, collapse = " | "), "\n")
+    selected_formats <- NULL
+    repeat {
+      c <- trimws(readline(msg$fmt_prompt))
+      if (tolower(c) %in% c("quit", "q")) { message(msg$quit_msg); return(invisible(NULL)) }
+      fs <- tolower(strsplit(c, "\\s+")[[1]])
+      fs <- fs[fs != ""]
+      if (all(fs %in% all_formats)) {
+        selected_formats <- unique(fs)
+        cat(sprintf(msg$selected_fmt, paste(selected_formats, collapse = ", ")), "\n")
+        break
+      }
+      cat(msg$invalid_fmt, "\n")
+    }
+    
+    # JPG 质量
+    jpg_q <- 95
+    if (any(selected_formats %in% c("jpg", "jpeg"))) {
+      q <- trimws(readline(msg$jpg_quality))
+      qv <- suppressWarnings(as.integer(q))
+      if (!is.na(qv) && qv >=1 && qv <=100) jpg_q <- qv
+    }
+    
+    # ------------------------------
+    # 批量转换（一张图 → N 种格式）
+    # ------------------------------
+    cat(msg$converting, "\n")
+    total_suc <- 0
+    total_fail <- 0
+    
+    for (img_file in selected_images) {
+      in_path <- file.path(input_path, img_file)
+      base <- tools::file_path_sans_ext(img_file)
       
-      cat(sprintf("  ✓ %s -> %s\n", img_name, basename(output_file)))
-      success_count <- success_count + 1
-      
-    }, error = function(e) {
-      cat(sprintf("  ✗ %s 失败: %s\n", img_name, conditionMessage(e)))
-      fail_count <- fail_count + 1
-    })
+      for (fmt in selected_formats) {
+        out_path <- file.path(output_path, paste0(base, ".", fmt))
+        cnt <- 1
+        while (file.exists(out_path)) {
+          out_path <- file.path(output_path, paste0(base, "_", cnt, ".", fmt))
+          cnt <- cnt + 1
+        }
+        
+        tryCatch({
+          img <- image_read(in_path)
+          if (fmt %in% c("jpg", "jpeg")) {
+            image_write(img, path = out_path, format = fmt, quality = jpg_q)
+          } else {
+            image_write(img, path = out_path, format = fmt)
+          }
+          cat(sprintf(msg$success, img_file, basename(out_path)), "\n")
+          total_suc <- total_suc + 1
+        }, error = function(e) {
+          cat(sprintf(msg$fail, img_file, conditionMessage(e)), "\n")
+          total_fail <<- total_fail + 1
+        })
+      }
+    }
+    
+    # 完成统计
+    cat(msg$done, "\n")
+    cat(sprintf(msg$total_suc, total_suc), "\n")
+    cat(sprintf(msg$total_fail, total_fail), "\n")
+    cat(msg$repeat_msg, "\n")
   }
-  
-  # 输出转换结果
-  cat(sprintf("\n========== 转换完成 ==========\n"))
-  cat(sprintf("成功转换: %d 张\n", success_count))
-  cat(sprintf("转换失败: %d 张\n", fail_count))
-  cat(sprintf("总处理数量: %d 张\n", length(selected_images)))
-  
-  # 返回转换结果（可选）
-  return(list(
-    success = success_count,
-    failed = fail_count,
-    total = length(selected_images),
-    input_folder = input_folder,
-    output_folder = output_folder,
-    output_format = output_format
-  ))
 }
-save(TransPicture,file = "TransPicture.Rdata")
-load(file = "TransPicture.Rdata")
-#用的时候直接加载"TransPicture.Rdata"就行了。
+
+# 保存并加载
+save(TransPicture, file = "TransPicture.Rdata")
+load("TransPicture.Rdata")
